@@ -24,8 +24,9 @@ import (
 
 // Parser parses the content of Markdown notes.
 type Parser struct {
-	md     goldmark.Markdown
-	logger util.Logger
+	md               goldmark.Markdown
+	logger           util.Logger
+	logseqProperties bool
 }
 
 type ParserOpts struct {
@@ -35,6 +36,8 @@ type ParserOpts struct {
 	MultiWordTagEnabled bool
 	// Indicates whether :colon:tags: are parsed.
 	ColontagEnabled bool
+	// Indicates whether Logseq's `key:: value` page properties are parsed.
+	LogseqPropertiesEnabled bool
 }
 
 // NewParser creates a new Markdown Parser.
@@ -61,7 +64,8 @@ func NewParser(options ParserOpts, logger util.Logger) *Parser {
 				},
 			),
 		),
-		logger: logger,
+		logger:           logger,
+		logseqProperties: options.LogseqPropertiesEnabled,
 	}
 }
 
@@ -91,13 +95,22 @@ func (p *Parser) ParseNoteContent(content string) (*core.NoteContent, error) {
 	}
 	links = append(links, fmLinks...)
 
-	title, bodyStart, err := parseTitle(frontmatter, root, bytes)
+	// Logseq page properties are only read when the notebook opts in, so other
+	// notebooks keep the stock behaviour. They are looked up after any YAML
+	// frontmatter, since a note may carry both.
+	logseq := logseqProperties{raw: map[string]string{}}
+	if p.logseqProperties {
+		logseq = parseLogseqProperties(bytes[frontmatter.end:])
+		logseq.end += frontmatter.end
+	}
+
+	title, bodyStart, err := parseTitle(frontmatter, logseq, root, bytes)
 	if err != nil {
 		return nil, err
 	}
 	body := parseBody(bodyStart, bytes)
 
-	tags, err := parseTags(frontmatter, root)
+	tags, err := parseTags(frontmatter, logseq, root)
 	if err != nil {
 		return nil, err
 	}
@@ -108,12 +121,32 @@ func (p *Parser) ParseNoteContent(content string) (*core.NoteContent, error) {
 		Lead:     parseLead(body),
 		Links:    links,
 		Tags:     tags,
-		Metadata: frontmatter.values,
+		Metadata: mergeMetadata(frontmatter.values, logseq.metadata()),
 	}, nil
 }
 
+// mergeMetadata combines the YAML frontmatter values with the Logseq page
+// properties. A frontmatter key wins, since it is the more explicit of the two.
+func mergeMetadata(frontmatter map[string]any, logseq map[string]any) map[string]any {
+	if len(logseq) == 0 {
+		return frontmatter
+	}
+
+	metadata := map[string]any{}
+	for key, value := range logseq {
+		metadata[key] = value
+	}
+	for key, value := range frontmatter {
+		metadata[key] = value
+	}
+	return metadata
+}
+
 // parseTitle extracts the note title with its node.
-func parseTitle(frontmatter frontmatter, root ast.Node, source []byte) (title opt.String, bodyStart int, err error) {
+//
+// The title is looked up in order of explicitness: a YAML frontmatter first,
+// then a Logseq `title::` property, then the first heading.
+func parseTitle(frontmatter frontmatter, logseq logseqProperties, root ast.Node, source []byte) (title opt.String, bodyStart int, err error) {
 	if title = frontmatter.getString("title", "Title"); !title.IsNull() {
 		bodyStart = frontmatter.end
 		return
@@ -136,12 +169,29 @@ func parseTitle(frontmatter frontmatter, root ast.Node, source []byte) (title op
 		return
 	}
 
+	headingStart := 0
+	if titleNode != nil {
+		if lines := titleNode.Lines(); lines.Len() > 0 {
+			headingStart = lines.At(lines.Len() - 1).Stop
+		}
+	}
+
+	// A Logseq page usually repeats its title in a `- # Title` block. Take the
+	// title from the property, but still skip the heading when computing the
+	// body, so the lead is the first real content rather than the title again.
+	if logseqTitle := logseq.getString("title"); !logseqTitle.IsNull() {
+		title = logseqTitle
+		if titleNode != nil {
+			bodyStart = headingStart
+		} else {
+			bodyStart = logseq.end
+		}
+		return
+	}
+
 	if titleNode != nil {
 		title = opt.NewNotEmptyString(string(titleNode.Text(source)))
-
-		if lines := titleNode.Lines(); lines.Len() > 0 {
-			bodyStart = lines.At(lines.Len() - 1).Stop
-		}
+		bodyStart = headingStart
 	}
 	return
 }
@@ -169,9 +219,13 @@ func parseLead(body opt.String) opt.String {
 	return opt.NewNotEmptyString(strings.TrimSpace(lead.String()))
 }
 
-// parseTags extracts tags as #hashtags, :colon:tags: or from the YAML frontmatter.
-func parseTags(frontmatter frontmatter, root ast.Node) ([]string, error) {
+// parseTags extracts tags as #hashtags, :colon:tags:, from the YAML frontmatter
+// or from a Logseq `tags::` property.
+func parseTags(frontmatter frontmatter, logseq logseqProperties, root ast.Node) ([]string, error) {
 	tags := make([]string, 0)
+
+	// Parse from the Logseq `tags::` page property.
+	tags = append(tags, logseq.getStrings("tags")...)
 
 	// Parse from YAML frontmatter, either:
 	// * a list of strings

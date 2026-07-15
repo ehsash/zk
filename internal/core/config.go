@@ -166,6 +166,9 @@ type MarkdownConfig struct {
 	LinkEncodePath bool
 	// Indicates whether a link's path file extension will be removed.
 	LinkDropExtension bool
+	// Indicates whether Logseq's `key:: value` page properties are read, and
+	// hrefs additionally resolved by title, alias and namespace.
+	LogseqProperties bool
 
 	// Frontmatter determines the keys used in the frontmatter
 	Frontmatter YamlFrontmatterConfig
@@ -421,6 +424,9 @@ func ParseConfig(content []byte, path string, parentConfig Config, isGlobal bool
 	if markdown.LinkDropExtension != nil {
 		config.Format.Markdown.LinkDropExtension = *markdown.LinkDropExtension
 	}
+	if markdown.LogseqProperties != nil {
+		config.Format.Markdown.LogseqProperties = *markdown.LogseqProperties
+	}
 
 	// Frontmatter
 	frontmatter := markdown.Frontmatter
@@ -610,6 +616,7 @@ type tomlMarkdownConfig struct {
 	LinkFormat        *string                   `toml:"link-format"`
 	LinkEncodePath    *bool                     `toml:"link-encode-path"`
 	LinkDropExtension *bool                     `toml:"link-drop-extension"`
+	LogseqProperties  *bool                     `toml:"logseq-properties"`
 	Frontmatter       tomlYamlFrontmatterConfig `toml:"frontmatter"`
 }
 
