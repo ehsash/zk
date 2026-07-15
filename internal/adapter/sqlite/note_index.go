@@ -21,6 +21,7 @@ type NoteIndex struct {
 	dao          *dao
 	logger       util.Logger
 	extension    string
+	logseqCompat bool
 }
 
 type dao struct {
@@ -30,12 +31,13 @@ type dao struct {
 	metadata    *MetadataDAO
 }
 
-func NewNoteIndex(notebookPath string, db *DB, logger util.Logger, extension string) *NoteIndex {
+func NewNoteIndex(notebookPath string, db *DB, logger util.Logger, extension string, logseqCompat bool) *NoteIndex {
 	return &NoteIndex{
 		notebookPath: notebookPath,
 		db:           db,
 		logger:       logger,
 		extension:    extension,
+		logseqCompat: logseqCompat,
 	}
 }
 
@@ -381,7 +383,7 @@ func (ni *NoteIndex) commit(transaction func(dao *dao) error) error {
 	} else {
 		return ni.db.WithTransaction(func(tx Transaction) error {
 			dao := dao{
-				notes:       NewNoteDAO(tx, ni.logger, ni.extension),
+				notes:       NewNoteDAO(tx, ni.logger, ni.extension, ni.logseqCompat),
 				links:       NewLinkDAO(tx, ni.logger),
 				collections: NewCollectionDAO(tx, ni.logger),
 				metadata:    NewMetadataDAO(tx),

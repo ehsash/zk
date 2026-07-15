@@ -1181,13 +1181,13 @@ func testNoteDAOFind(t *testing.T, opts core.NoteFindOpts, expected []core.Conte
 
 func testNoteDAO(t *testing.T, callback func(tx Transaction, dao *NoteDAO)) {
 	testTransaction(t, func(tx Transaction) {
-		callback(tx, NewNoteDAO(tx, &util.NullLogger, "md"))
+		callback(tx, NewNoteDAO(tx, &util.NullLogger, "md", false))
 	})
 }
 
 func testNoteDAOWithFixtures(t *testing.T, fixtures string, callback func(tx Transaction, dao *NoteDAO)) {
 	testTransactionWithFixtures(t, opt.NewNotEmptyString(fixtures), func(tx Transaction) {
-		callback(tx, NewNoteDAO(tx, &util.NullLogger, "md"))
+		callback(tx, NewNoteDAO(tx, &util.NullLogger, "md", false))
 	})
 }
 

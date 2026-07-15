@@ -22,6 +22,8 @@ type NoteDAO struct {
 	tx        Transaction
 	logger    util.Logger
 	extension string
+	// Indicates whether hrefs are also resolved the way Logseq resolves them.
+	logseqCompat bool
 
 	// Prepared SQL statements
 	indexedStmt               *LazyStmt
@@ -32,16 +34,19 @@ type NoteDAO struct {
 	findIDsByFilenameLikeStmt *LazyStmt
 	findIDsByPathLikeStmt     *LazyStmt
 	findIDsByPathPrefixStmt   *LazyStmt
+	findIDsByTitleStmt        *LazyStmt
+	findIDsByAliasStmt        *LazyStmt
 	findByIDStmt              *LazyStmt
 }
 
 // NewNoteDAO creates a new instance of a DAO working on the given database
 // transaction.
-func NewNoteDAO(tx Transaction, logger util.Logger, extension string) *NoteDAO {
+func NewNoteDAO(tx Transaction, logger util.Logger, extension string, logseqCompat bool) *NoteDAO {
 	return &NoteDAO{
-		tx:        tx,
-		logger:    logger,
-		extension: extension,
+		tx:           tx,
+		logger:       logger,
+		extension:    extension,
+		logseqCompat: logseqCompat,
 
 		// Get file info about all indexed notes.
 		indexedStmt: tx.PrepareLazy(`
@@ -93,6 +98,25 @@ func NewNoteDAO(tx Transaction, logger util.Logger, extension string) *NoteDAO {
 			SELECT id FROM notes
 			 WHERE (path LIKE ? ESCAPE '\' AND path NOT LIKE ? ESCAPE '\')
 			    OR path LIKE ? ESCAPE '\'
+			 ORDER BY LENGTH(path) ASC
+		`),
+
+		// Find note IDs from an exact (case-insensitive) title. Used to resolve
+		// a link written in the readable form, e.g. [[Renewable Energy]].
+		findIDsByTitleStmt: tx.PrepareLazy(`
+			SELECT id FROM notes
+			 WHERE title <> '' AND title = ? COLLATE NOCASE
+			 ORDER BY LENGTH(path) ASC
+		`),
+
+		// Find note IDs from one of the note's aliases, as stored in the
+		// metadata by the Logseq `alias::` property.
+		findIDsByAliasStmt: tx.PrepareLazy(`
+			SELECT id FROM notes
+			 WHERE EXISTS (
+			       SELECT 1 FROM json_each(notes.metadata, '$.alias')
+			        WHERE json_each.value = ? COLLATE NOCASE
+			 )
 			 ORDER BY LENGTH(path) ASC
 		`),
 
@@ -286,6 +310,43 @@ func (d *NoteDAO) FindIdsByHref(href string, allowPartialHref bool) ([]core.Note
 	// matching a sub-section in the note.
 	href = strings.SplitN(href, "#", 2)[0]
 
+	ids, err := d.findIDsByPathHref(href, allowPartialHref)
+	if len(ids) > 0 || err != nil {
+		return ids, err
+	}
+
+	if !d.logseqCompat {
+		return []core.NoteID{}, nil
+	}
+
+	// Logseq resolves a link against the page name, its `title::` and its
+	// aliases, not only against the filename. All of these are tried after the
+	// path lookups above, so an exact path always wins.
+
+	// A namespaced page such as [[workspace/project]] is stored by Logseq as
+	// `workspace___project.md`, so the raw href matches no path at all.
+	if strings.Contains(href, "/") {
+		ids, err = d.findIDsByPathHref(strings.ReplaceAll(href, "/", "___"), allowPartialHref)
+		if len(ids) > 0 || err != nil {
+			return ids, err
+		}
+	}
+
+	ids, err = d.findIDsWithStmt(d.findIDsByTitleStmt, href)
+	if len(ids) > 0 || err != nil {
+		return ids, err
+	}
+
+	ids, err = d.findIDsWithStmt(d.findIDsByAliasStmt, href)
+	if len(ids) > 0 || err != nil {
+		return ids, err
+	}
+
+	return []core.NoteID{}, nil
+}
+
+// findIDsByPathHref finds note IDs whose path or filename matches the href.
+func (d *NoteDAO) findIDsByPathHref(href string, allowPartialHref bool) ([]core.NoteID, error) {
 	href = strings.NewReplacer("%", "\\%", "_", "\\_").Replace(href)
 
 	// Prioritise exact match with extension.
