@@ -82,6 +82,8 @@ filename = "{{format-date now}}"
 hashtags = true
 # Enable support for :colon:separated:tags:
 colon-tags = true
+# Enable support for Logseq's `key:: value` page properties
+#logseq-properties = true
 
 #[format.markdown.frontmatter]
 # Define custom keys and properties of the frontmatter block

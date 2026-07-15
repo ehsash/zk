@@ -9,6 +9,11 @@ Format: `<description> (by <contributor>, <pr number>)`
 
 ### Added
 
+- Support Logseq's `key:: value` page properties with the new
+  `[format.markdown] logseq-properties` setting: `title::` and `tags::` feed the
+  note title and tags, every property is exposed as metadata, and links are also
+  resolved by title, `alias::` and Logseq's `___` namespace encoding (by
+  @ehsash)
 - Parse links to notes in frontmatter (by @tjex, 710)
 - Set a note's modification time in frontmatter and allow for custom key naming
   for both creation and modification keys (by @BennoLossin and @tjex, 531)
