@@ -61,9 +61,14 @@ func (n *Notebook) ParseNoteWithContent(absPath string, content []byte) (*Note, 
 		return nil, fmt.Errorf("error parsing note content %s: %w", absPath, err)
 	}
 
+	title := contentParts.Title.String()
+	if title == "" && n.Config.Format.Markdown.LogseqProperties {
+		title = logseqPageName(relPath)
+	}
+
 	note := Note{
 		Path:       relPath,
-		Title:      contentParts.Title.String(),
+		Title:      title,
 		Lead:       contentParts.Lead.String(),
 		Body:       contentParts.Body.String(),
 		RawContent: contentStr,
@@ -109,6 +114,19 @@ func (n *Notebook) ParseNoteWithContent(absPath string, content []byte) (*Note, 
 	}
 
 	return &note, nil
+}
+
+// logseqPageName derives a Logseq page name from a note path.
+//
+// A Logseq page which declares neither `title::` nor a `- # Title` block is
+// named after its file, with `___` standing for the `/` of a namespace. Falling
+// back to it keeps every page titled, which matters because a generated
+// `[[link]]` uses the title: an untitled page would produce an empty link, and a
+// page titled after one of its sub-headings a link to somewhere else entirely.
+func logseqPageName(path string) string {
+	name := filepath.Base(path)
+	name = strings.TrimSuffix(name, filepath.Ext(name))
+	return strings.ReplaceAll(name, "___", "/")
 }
 
 // Parses dates from a frontmatter value. Falls back to returning the current

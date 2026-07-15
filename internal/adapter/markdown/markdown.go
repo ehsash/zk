@@ -98,7 +98,7 @@ func (p *Parser) ParseNoteContent(content string) (*core.NoteContent, error) {
 	// Logseq page properties are only read when the notebook opts in, so other
 	// notebooks keep the stock behaviour. They are looked up after any YAML
 	// frontmatter, since a note may carry both.
-	logseq := logseqProperties{raw: map[string]string{}}
+	logseq := logseqProperties{enabled: false, raw: map[string]string{}}
 	if p.logseqProperties {
 		logseq = parseLogseqProperties(bytes[frontmatter.end:])
 		logseq.end += frontmatter.end
@@ -156,6 +156,14 @@ func parseTitle(frontmatter frontmatter, logseq logseqProperties, root ast.Node,
 	err = ast.Walk(root, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
 		if heading, ok := n.(*ast.Heading); ok && entering &&
 			(titleNode == nil || heading.Level < titleNode.Level) {
+
+			// A Logseq page states its title in `title::` or in a `- # Title`
+			// block. A sub-heading is a section of the page, so it must not be
+			// promoted: the page name is the title in that case, and only the
+			// caller knows the filename it comes from.
+			if logseq.enabled && heading.Level > 1 {
+				return ast.WalkContinue, nil
+			}
 
 			titleNode = heading
 			if heading.Level == 1 {

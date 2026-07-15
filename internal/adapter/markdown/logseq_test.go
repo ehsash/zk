@@ -153,11 +153,20 @@ func TestLogseqTitle(t *testing.T) {
 	// keep their existing behaviour.
 	test("---\ntitle: From Frontmatter\n---\ntitle:: From Property", "From Frontmatter")
 
-	// No `title::` falls back to the heading.
+	// No `title::` falls back to the `- # Title` block a Logseq page carries.
 	test("type:: [[concept]]\n- # A Heading", "A Heading")
 
 	// Neither: no title.
 	test("type:: [[concept]]\n- some prose", "")
+
+	// A sub-heading is a section of the page, never its title. Logseq derives
+	// the title of such a page from its filename instead, which the parser
+	// cannot see, so it must report no title rather than a wrong one.
+	test("type:: [[project]]\n- ## Problem Statement\n- ## Approach", "")
+	test("type:: [[project]]\n- ### Deep Section", "")
+
+	// An H1 further down still counts, since it is the page's title block.
+	test("type:: [[project]]\n- ## Section\n- # The Title", "The Title")
 }
 
 func TestLogseqTitleKeepsHeadingOutOfBody(t *testing.T) {

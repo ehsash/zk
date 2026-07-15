@@ -27,6 +27,9 @@ var logseqPropertyRegex = regexp.MustCompile(`^([A-Za-z][A-Za-z0-9_-]*):: ?(.*)$
 
 // logseqProperties holds the page properties found at the top of a note.
 type logseqProperties struct {
+	// enabled indicates whether the notebook opted into Logseq support. It is
+	// distinct from an empty property block, which a Logseq page may have.
+	enabled bool
 	// raw maps a lowercased property key to its unparsed value.
 	raw map[string]string
 	// end is the offset at which the content after the property block starts.
@@ -42,7 +45,7 @@ type logseqProperties struct {
 // Blank lines before the block are skipped, so a note may carry both a YAML
 // frontmatter and Logseq properties.
 func parseLogseqProperties(source []byte) logseqProperties {
-	props := logseqProperties{raw: map[string]string{}, end: 0}
+	props := logseqProperties{enabled: true, raw: map[string]string{}, end: 0}
 
 	offset := 0
 	seenProperty := false

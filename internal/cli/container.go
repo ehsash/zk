@@ -110,9 +110,10 @@ func NewContainer(version string) (*Container, error) {
 					NoteIndex: sqlite.NewNoteIndex(path, db, logger, config.Note.Extension, config.Format.Markdown.LogseqProperties),
 					NoteContentParser: markdown.NewParser(
 						markdown.ParserOpts{
-							HashtagEnabled:      config.Format.Markdown.Hashtags,
-							MultiWordTagEnabled: config.Format.Markdown.MultiwordTags,
-							ColontagEnabled:     config.Format.Markdown.ColonTags,
+							HashtagEnabled:          config.Format.Markdown.Hashtags,
+							MultiWordTagEnabled:     config.Format.Markdown.MultiwordTags,
+							ColontagEnabled:         config.Format.Markdown.ColonTags,
+							LogseqPropertiesEnabled: config.Format.Markdown.LogseqProperties,
 						},
 						logger,
 					),
