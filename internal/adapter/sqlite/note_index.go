@@ -156,6 +156,18 @@ func (ni *NoteIndex) batchFixExistingLinks(dao *dao, ids []core.NoteID, paths []
 		return err
 	}
 
+	// A Logseq link may name a note by `title::` or `alias::` rather than by
+	// path, so path matching alone would never re-target such a link. Resolve
+	// the names once per batch: this runs for every indexed note, so a lookup
+	// per link would be far too slow.
+	names := make([][]string, len(ids))
+	for i, id := range ids {
+		names[i], err = dao.notes.LinkNames(id)
+		if err != nil {
+			return err
+		}
+	}
+
 	fixLink := func(link core.ResolvedLink) error {
 		bestTargetPath := link.TargetPath
 		bestMatch := -1
@@ -166,7 +178,7 @@ func (ni *NoteIndex) batchFixExistingLinks(dao *dao, ids []core.NoteID, paths []
 				continue
 			}
 
-			matches, err := ni.linkMatchesPath(link, path)
+			matches, err := ni.linkMatchesPath(link, path, names[i])
 			if err != nil {
 				return err
 			}
@@ -200,8 +212,8 @@ func (ni *NoteIndex) batchFixExistingLinks(dao *dao, ids []core.NoteID, paths []
 }
 
 // linkMatchesPath returns whether the given link can be used to reach the
-// given note path.
-func (ni *NoteIndex) linkMatchesPath(link core.ResolvedLink, path string) (bool, error) {
+// given note path. names holds the note's Logseq title and aliases, if any.
+func (ni *NoteIndex) linkMatchesPath(link core.ResolvedLink, path string, names []string) (bool, error) {
 	// Remove any anchor at the end of the HREF, since it's most likely
 	// matching a sub-section in the note.
 	href := link.Href
@@ -235,6 +247,25 @@ func (ni *NoteIndex) linkMatchesPath(link core.ResolvedLink, path string) (bool,
 	allowPartialMatch := link.Type == core.LinkTypeWikiLink
 	if matches(href, allowPartialMatch) {
 		return true, nil
+	}
+
+	// Mirror the Logseq href resolution done by NoteDAO.FindIdsByHref, which
+	// only resolves a link when its target is already indexed. This is the other
+	// half: a link indexed BEFORE its target is re-targeted here, so resolution
+	// does not depend on the order notes happen to be walked in.
+	if ni.logseqCompat {
+		// [[workspace/project]] is stored by Logseq as workspace___project.md.
+		if strings.Contains(href, "/") &&
+			matches(strings.ReplaceAll(href, "/", "___"), allowPartialMatch) {
+			return true, nil
+		}
+
+		// [[Renewable Energy]] names the note by title or alias, never by path.
+		for _, name := range names {
+			if name != "" && strings.EqualFold(href, name) {
+				return true, nil
+			}
+		}
 	}
 
 	baseDir := filepath.Join(ni.notebookPath, filepath.Dir(link.SourcePath))
@@ -347,10 +378,16 @@ func (ni *NoteIndex) Remove(path string) error {
 // Commit implements core.NoteIndex.
 func (ni *NoteIndex) Commit(transaction func(idx core.NoteIndex) error) error {
 	return ni.commit(func(dao *dao) error {
+		// Carry every field over: the index handed to the transaction must
+		// behave exactly like the one it wraps. Dropping a field here silently
+		// disables whatever depends on it, since the zero value is a valid one.
 		return transaction(&NoteIndex{
-			db:     ni.db,
-			dao:    dao,
-			logger: ni.logger,
+			notebookPath: ni.notebookPath,
+			db:           ni.db,
+			dao:          dao,
+			logger:       ni.logger,
+			extension:    ni.extension,
+			logseqCompat: ni.logseqCompat,
 		})
 	})
 }
