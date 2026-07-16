@@ -25,6 +25,8 @@ Format: `<description> (by <contributor>, <pr number>)`
   `<date>T<time>` only (by @tjex, 743)
 - Exclude globs now prune matching directories from indexing, improving speed of
   indexing (by @ehsash, 741)
+- `NoteIndex.Commit` no longer drops the notebook path and note extension from
+  the index it hands to the transaction (by @ehsash)
 
 ## 0.15.5
 
