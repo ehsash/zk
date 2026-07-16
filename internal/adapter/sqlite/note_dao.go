@@ -36,6 +36,7 @@ type NoteDAO struct {
 	findIDsByPathPrefixStmt   *LazyStmt
 	findIDsByTitleStmt        *LazyStmt
 	findIDsByAliasStmt        *LazyStmt
+	findNamesByIDStmt         *LazyStmt
 	findByIDStmt              *LazyStmt
 }
 
@@ -118,6 +119,13 @@ func NewNoteDAO(tx Transaction, logger util.Logger, extension string, logseqComp
 			        WHERE json_each.value = ? COLLATE NOCASE
 			 )
 			 ORDER BY LENGTH(path) ASC
+		`),
+
+		// Find the names a Logseq link may use to reach a note besides its
+		// path: its title and its aliases.
+		findNamesByIDStmt: tx.PrepareLazy(`
+			SELECT title, metadata FROM notes
+			 WHERE id = ?
 		`),
 
 		// Find a note from its ID.
@@ -301,6 +309,47 @@ func (d *NoteDAO) findIDsByHrefs(hrefs []string, allowPartialHrefs bool) ([]core
 		ids = append(ids, cids...)
 	}
 	return ids, nil
+}
+
+// LinkNames returns the names a Logseq link may use to reach the note besides
+// its path: its title and its `alias::` values. Empty unless the notebook
+// enabled Logseq support.
+func (d *NoteDAO) LinkNames(id core.NoteID) ([]string, error) {
+	names := []string{}
+	if !d.logseqCompat {
+		return names, nil
+	}
+
+	row, err := d.findNamesByIDStmt.QueryRow(int64(id))
+	if err != nil {
+		return names, err
+	}
+
+	var title string
+	var metadataJSON string
+	if err := row.Scan(&title, &metadataJSON); err != nil {
+		if err == sql.ErrNoRows {
+			return names, nil
+		}
+		return names, err
+	}
+
+	if title != "" {
+		names = append(names, title)
+	}
+
+	var metadata map[string]any
+	if err := json.Unmarshal([]byte(metadataJSON), &metadata); err == nil {
+		if aliases, ok := metadata["alias"].([]any); ok {
+			for _, alias := range aliases {
+				if s, ok := alias.(string); ok && s != "" {
+					names = append(names, s)
+				}
+			}
+		}
+	}
+
+	return names, nil
 }
 
 // FindIdsByHref finds note IDs which match the given href string.
